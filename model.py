@@ -169,8 +169,8 @@ class AutoEncoder(nn.Module):
             self.dec_tower, mult = self.init_decoder_tower(mult)
 
         self.post_process, mult = self.init_post_process(mult)
-
-        self.image_conditional = self.init_image_conditional(mult)
+        print("MULT: ", mult)
+        self.image_conditionals = [self.init_image_conditional(mult * 2), self.init_image_conditional(mult)]
 
         # collect all norm params in Conv2D and gamma param in batchnorm
         self.all_log_norm = []
@@ -427,7 +427,7 @@ class AutoEncoder(nn.Module):
         for cell in self.post_process:
             s = cell(s)
 
-        logits = self.image_conditional(s)
+        logits = self.image_conditionals[1](s)
 
         # compute kl
         kl_all = []
@@ -476,10 +476,19 @@ class AutoEncoder(nn.Module):
         if self.vanilla_vae:
             s = self.stem_decoder(z)
 
+        logits = []
         for cell in self.post_process:
             s = cell(s)
+            print(s.shape)
+            if s.shape[1] == 64:
+                logit = self.image_conditionals[0](s)
+            elif s.shape[1] == 32:
+                logit = self.image_conditionals[1](s)
+            else:
+              raise NotImplementedError(f'Dimension should be 32 or 64 but found {s.size(1)}')
+            logits.append(logit)
 
-        logits = self.image_conditional(s)
+        # logits = self.image_conditional(s)
         return logits
 
     def decoder_output(self, logits):
