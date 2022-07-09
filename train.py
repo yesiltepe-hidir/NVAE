@@ -95,33 +95,8 @@ def main(args):
         train_nelbo, global_step = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
-
-        model.eval()
-        # generate samples less frequently
-        eval_freq = 1 if args.epochs <= 50 else 20
-        if epoch % eval_freq == 0 or epoch == (args.epochs - 1):
-            with torch.no_grad():
-                num_samples = 16
-                n = int(np.floor(np.sqrt(num_samples)))
-                for t in [0.7, 0.8, 0.9, 1.0]:
-                    logits = model.sample(num_samples, t)
-                    output = model.decoder_output(logits)
-                    output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample(t)
-                    output_tiled = utils.tile_image(output_img, n)
-                    writer.add_image('generated_%0.1f' % t, output_tiled, global_step)
-
-            valid_neg_log_p, valid_nelbo = test(valid_queue, model, num_samples=10, args=args, logging=logging)
-            logging.info('valid_nelbo %f', valid_nelbo)
-            logging.info('valid neg log p %f', valid_neg_log_p)
-            logging.info('valid bpd elbo %f', valid_nelbo * bpd_coeff)
-            logging.info('valid bpd log p %f', valid_neg_log_p * bpd_coeff)
-            writer.add_scalar('val/neg_log_p', valid_neg_log_p, epoch)
-            writer.add_scalar('val/nelbo', valid_nelbo, epoch)
-            writer.add_scalar('val/bpd_log_p', valid_neg_log_p * bpd_coeff, epoch)
-            writer.add_scalar('val/bpd_elbo', valid_nelbo * bpd_coeff, epoch)
-
-        save_freq = int(np.ceil(args.epochs / 100))
-        if epoch % save_freq == 0 or epoch == (args.epochs - 1):
+     
+        if epoch == (args.epochs - 1):
             if args.global_rank == 0:
                 logging.info('saving the model.')
                 torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
@@ -129,14 +104,6 @@ def main(args):
                             'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(),
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
 
-    # Final validation
-    valid_neg_log_p, valid_nelbo = test(valid_queue, model, num_samples=1000, args=args, logging=logging)
-    logging.info('final valid nelbo %f', valid_nelbo)
-    logging.info('final valid neg log p %f', valid_neg_log_p)
-    writer.add_scalar('val/neg_log_p', valid_neg_log_p, epoch + 1)
-    writer.add_scalar('val/nelbo', valid_nelbo, epoch + 1)
-    writer.add_scalar('val/bpd_log_p', valid_neg_log_p * bpd_coeff, epoch + 1)
-    writer.add_scalar('val/bpd_elbo', valid_nelbo * bpd_coeff, epoch + 1)
     writer.close()
 
 
@@ -434,7 +401,7 @@ if __name__ == '__main__':
     parser.add_argument('--seed', type=int, default=1,
                         help='seed used for initialization')
     args = parser.parse_args()
-    args.save = args.root + '/eval-' + args.save
+    args.save = args.root + args.save
     utils.create_exp_dir(args.save)
 
     size = args.num_process_per_node
