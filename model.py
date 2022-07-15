@@ -112,56 +112,57 @@ class AutoEncoder(nn.Module):
         self.use_se = args.use_se
         self.res_dist = args.res_dist
         self.num_bits = args.num_x_bits
+                                                                # EXPLANATION:                                             |   DEFAULT VALUE:
+        self.num_latent_scales = args.num_latent_scales         # number of spatial scales that latent layers will reside  |    1  
+        self.num_groups_per_scale = args.num_groups_per_scale   # number of groups of latent vars. per scale               |   10
+        self.num_latent_per_group = args.num_latent_per_group   # number of latent vars. per group                         |   20
+        self.groups_per_scale = groups_per_scale(               # number of groups in each scale                           |  [10]   
+                                self.num_latent_scales,              
+                                self.num_groups_per_scale, 
+                                args.ada_groups,        
+                                minimum_groups=args.min_groups_per_scale)
 
-        self.num_latent_scales = args.num_latent_scales         # number of spatial scales that latent layers will reside
-        self.num_groups_per_scale = args.num_groups_per_scale   # number of groups of latent vars. per scale
-        self.num_latent_per_group = args.num_latent_per_group   # number of latent vars. per group
-        self.groups_per_scale = groups_per_scale(self.num_latent_scales, self.num_groups_per_scale, args.ada_groups,
-                                                 minimum_groups=args.min_groups_per_scale)
+        self.vanilla_vae = self.num_latent_scales == 1 and self.num_groups_per_scale == 1  # False by default args
 
-        self.vanilla_vae = self.num_latent_scales == 1 and self.num_groups_per_scale == 1
+        # encoder parameteres                                    # EXPLANATION:                                             |   DEFAULT VALUE:
+        self.num_channels_enc = args.num_channels_enc            # number of encoder channels                               |    32     
+        self.num_preprocess_blocks = args.num_preprocess_blocks  # block is defined as series of Normal followed by Down    |     2
+        self.num_preprocess_cells = args.num_preprocess_cells    # number of cells per block                                |     3
+        self.num_cell_per_cond_enc = args.num_cell_per_cond_enc  # number of cell for each conditional in encoder           |     1
 
-        # encoder parameteres
-        self.num_channels_enc = args.num_channels_enc
-        self.num_channels_dec = args.num_channels_dec
-        self.num_preprocess_blocks = args.num_preprocess_blocks  # block is defined as series of Normal followed by Down
-        self.num_preprocess_cells = args.num_preprocess_cells   # number of cells per block
-        self.num_cell_per_cond_enc = args.num_cell_per_cond_enc  # number of cell for each conditional in encoder
+        # decoder parameters                                     # EXPLANATION:                                             |   DEFAULT VALUE:
+        self.num_channels_dec = args.num_channels_dec            # number of decoder channels                               |    32
+        self.num_postprocess_blocks = args.num_postprocess_blocks# number of                                                |     2  
+        self.num_postprocess_cells = args.num_postprocess_cells  # number of cells per block                                |     3 
+        self.num_cell_per_cond_dec = args.num_cell_per_cond_dec  # number of cell for each conditional in decoder           |     1
 
-        # decoder parameters
-        # self.num_channels_dec = args.num_channels_dec
-        self.num_postprocess_blocks = args.num_postprocess_blocks
-        self.num_postprocess_cells = args.num_postprocess_cells
-        self.num_cell_per_cond_dec = args.num_cell_per_cond_dec  # number of cell for each conditional in decoder
+        # general cell parameters                                # EXPLANATION:                                             |   DEFAULT VALUE:
+        self.input_size = get_input_size(self.dataset)           # spatial size of dataset                                  |    32
 
-        # general cell parameters
-        self.input_size = get_input_size(self.dataset)
+        # decoder param                                          # EXPLANATION:                                             |   DEFAULT VALUE:
+        self.num_mix_output = args.num_mixture_dec               # number of mixture components in decoder                  |    10 
 
-        # decoder param
-        self.num_mix_output = args.num_mixture_dec
-
-        # used for generative purpose
-        c_scaling = CHANNEL_MULT ** (self.num_preprocess_blocks + self.num_latent_scales - 1)
-        spatial_scaling = 2 ** (self.num_preprocess_blocks + self.num_latent_scales - 1)
-        prior_ftr0_size = (int(c_scaling * self.num_channels_dec), self.input_size // spatial_scaling,
+        # used for generative purpose                                                                   # MNIST Configuration
+        c_scaling = CHANNEL_MULT ** (self.num_preprocess_blocks + self.num_latent_scales - 1)           # 2 ** (2 + 1 - 1) = 4
+        spatial_scaling =      2 ** (self.num_preprocess_blocks + self.num_latent_scales - 1)           # 2 ** (2 + 1 - 1) = 4
+        prior_ftr0_size = (int(c_scaling * self.num_channels_dec), self.input_size // spatial_scaling,  # (4 x 32, 32 // 4, 32 // 4) = (128, 8 x 8)
                            self.input_size // spatial_scaling)
         self.prior_ftr0 = nn.Parameter(torch.rand(size=prior_ftr0_size), requires_grad=True)
-        self.z0_size = [self.num_latent_per_group, self.input_size // spatial_scaling, self.input_size // spatial_scaling]
-
-        self.stem = self.init_stem()
-        self.pre_process, mult = self.init_pre_process(mult=1)
+        self.z0_size = [self.num_latent_per_group, self.input_size // spatial_scaling, self.input_size // spatial_scaling] #   [20, 32 // 4, 32 // 4]
+                                                                                                                           # = [20, 8, 8]        
+        self.stem = self.init_stem()                             # Convolution2D [Kernel(3, 3), Padding=1]
+        self.pre_process, mult = self.init_pre_process(mult=1)   # mult : 4 
 
         if self.vanilla_vae:
             self.enc_tower = []
         else:
-            self.enc_tower, mult = self.init_encoder_tower(mult)
+            self.enc_tower, mult = self.init_encoder_tower(mult) # mult : 4  --> mult : 4
 
-        self.with_nf = args.num_nf > 0
-        self.num_flows = args.num_nf
+        self.with_nf = args.num_nf > 0                           # False, default number of normalizing flows: 0 
+        self.num_flows = args.num_nf                             # By default: 0
 
-        self.enc0 = self.init_encoder0(mult)
-        self.enc_sampler, self.dec_sampler, self.nf_cells, self.enc_kv, self.dec_kv, self.query = \
-            self.init_normal_sampler(mult)
+        self.enc0 = self.init_encoder0(mult)                     # mult : 4 ; enc0 = Cell(128, 128, kernel_size = 1)
+        self.enc_sampler, self.dec_sampler, self.nf_cells, self.enc_kv, self.dec_kv, self.query = self.init_normal_sampler(mult)
 
         if self.vanilla_vae:
             self.dec_tower = []
@@ -203,15 +204,15 @@ class AutoEncoder(nn.Module):
         return stem
 
     def init_pre_process(self, mult):
-        pre_process = nn.ModuleList()
-        for b in range(self.num_preprocess_blocks):
-            for c in range(self.num_preprocess_cells):
+        pre_process = nn.ModuleList()                    # By the time init_preprocess is called:
+        for b in range(self.num_preprocess_blocks):      # num_preprocess_blocks : 2
+            for c in range(self.num_preprocess_cells):   # num_process_cells     : 3
                 if c == self.num_preprocess_cells - 1:
                     arch = self.arch_instance['down_pre']
                     num_ci = int(self.num_channels_enc * mult)
-                    num_co = int(CHANNEL_MULT * num_ci)
+                    num_co = int(CHANNEL_MULT * num_ci)  # Channels are doubled here.
                     cell = Cell(num_ci, num_co, cell_type='down_pre', arch=arch, use_se=self.use_se)
-                    mult = CHANNEL_MULT * mult
+                    mult = CHANNEL_MULT * mult           # b = 0 ; mult: 2 x 1 = 2 -> b = 1 ; mult: 2 x 2 = 4
                 else:
                     arch = self.arch_instance['normal_pre']
                     num_c = self.num_channels_enc * mult
@@ -222,19 +223,24 @@ class AutoEncoder(nn.Module):
         return pre_process, mult
 
     def init_encoder_tower(self, mult):
-        enc_tower = nn.ModuleList()
-        for s in range(self.num_latent_scales):
-            for g in range(self.groups_per_scale[s]):
-                for c in range(self.num_cell_per_cond_enc):
+        enc_tower = nn.ModuleList()                                 # MNIST Configuration (Default args)
+        for s in range(self.num_latent_scales):                     # num_latent_scales : 1 
+            for g in range(self.groups_per_scale[s]):               # g                 : 10
+                for c in range(self.num_cell_per_cond_enc):         # c                 : 1
                     arch = self.arch_instance['normal_enc']
-                    num_c = int(self.num_channels_enc * mult)
-                    cell = Cell(num_c, num_c, cell_type='normal_enc', arch=arch, use_se=self.use_se)
+                    num_c = int(self.num_channels_enc * mult)       # num_c             : 32 x 4 = 128
+                    cell = Cell(num_c, 
+                                num_c, 
+                                cell_type='normal_enc', 
+                                arch=arch, 
+                                use_se=self.use_se)
+
                     enc_tower.append(cell)
 
-                # add encoder combiner
+                # add encoder combiner      
                 if not (s == self.num_latent_scales - 1 and g == self.groups_per_scale[s] - 1):
-                    num_ce = int(self.num_channels_enc * mult)
-                    num_cd = int(self.num_channels_dec * mult)
+                    num_ce = int(self.num_channels_enc * mult)     # num_ce: 32 x 4 = 128 
+                    num_cd = int(self.num_channels_dec * mult)     # num_cd: 32 x 4 = 128
                     cell = EncCombinerCell(num_ce, num_cd, num_ce, cell_type='combiner_enc')
                     enc_tower.append(cell)
 
@@ -250,7 +256,7 @@ class AutoEncoder(nn.Module):
         return enc_tower, mult
 
     def init_encoder0(self, mult):
-        num_c = int(self.num_channels_enc * mult)
+        num_c = int(self.num_channels_enc * mult)  # 32 x 4 = 128
         cell = nn.Sequential(
             nn.ELU(),
             Conv2D(num_c, num_c, kernel_size=1, bias=True),
@@ -340,23 +346,27 @@ class AutoEncoder(nn.Module):
         return nn.Sequential(nn.ELU(),
                              Conv2D(C_in, C_out, 3, padding=1, bias=True))
 
-    def forward(self, x):
-        s = self.stem(2 * x - 1.0)
+    def forward(self, x):       
+        ##################################### ENCODER #########################################################################
+                                        #     [B x C x H x W]
+        # Normalize x between -1, 1     # x:  [200,  1, 32, 32]   
+        s = self.stem(2 * x - 1.0)      # s:  [200, 32, 32, 32] 
 
-        # perform pre-processing
-        for cell in self.pre_process:
-            s = cell(s)
-
+        # perform pre-processing        # There are 6 cells in self.preprocess. According to their effect on size of s we have:
+        for cell in self.pre_process:   # [Idendity, Idendity, Downsample,   Idendity, Idendity, Downsample]
+            s = cell(s)                 # [200, 32, 32, 32] -> [200, 32, 32, 32] -> [200, 64, 16, 16] (First 3 cells applied on s)
+                                        # [200, 64, 16, 16] -> [200, 64, 16, 16] -> [200, 128, 8, 8]  (Last  3 cells applied on s)
         # run the main encoder tower
         combiner_cells_enc = []
         combiner_cells_s = []
-        for cell in self.enc_tower:
+        for cell in self.enc_tower:    # enc_tower: [(Cell, Combiner) x 9, Cell] ; length: 19
             if cell.cell_type == 'combiner_enc':
                 combiner_cells_enc.append(cell)
                 combiner_cells_s.append(s)
             else:
-                s = cell(s)
-
+                s = cell(s)           # s size at each iteration: [200, 128, 8, 8]
+        
+        ##################################### DECODER #########################################################################
         # reverse combiner cells and their input for decoder
         combiner_cells_enc.reverse()
         combiner_cells_s.reverse()

@@ -472,12 +472,12 @@ def get_arch_cells(arch_type):
 
 
 def groups_per_scale(num_scales, num_groups_per_scale, is_adaptive, divider=2, minimum_groups=1):
-    g = []
-    n = num_groups_per_scale
-    for s in range(num_scales):
+    g = []                           # By default args:
+    n = num_groups_per_scale         # num_groups_per_scale : 10
+    for s in range(num_scales):      # num_scales           : 1
         assert n >= 1
-        g.append(n)
-        if is_adaptive:
+        g.append(n)                 
+        if is_adaptive:              # is_adaptive          : False 
             n = n // divider
             n = max(minimum_groups, n)
-    return g
+    return g                        # Returns [10] 
