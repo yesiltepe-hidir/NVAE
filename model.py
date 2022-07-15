@@ -372,19 +372,19 @@ class AutoEncoder(nn.Module):
         combiner_cells_s.reverse()
 
         idx_dec = 0
-        ftr = self.enc0(s)                            # this reduces the channel dimension
-        param0 = self.enc_sampler[idx_dec](ftr)
-        mu_q, log_sig_q = torch.chunk(param0, 2, dim=1)
-        dist = Normal(mu_q, log_sig_q)   # for the first approx. posterior
-        z, _ = dist.sample()
-        log_q_conv = dist.log_p(z)
+        ftr = self.enc0(s)                                  # Ftr size        : [200, 128, 8, 8], same as size of s.
+        param0 = self.enc_sampler[idx_dec](ftr)             # param0          : [200,  40, 8, 8]
+        mu_q, log_sig_q = torch.chunk(param0, 2, dim=1)     # mu_q, log_sig_q : [200,  20, 8, 8]
+        dist = Normal(mu_q, log_sig_q)                      # for the first approx. posterior
+        z, _ = dist.sample()                                # z               : [200,  20, 8, 8] 
+        log_q_conv = dist.log_p(z)                          # log_q_conv      : [200,  20, 8, 8]
 
         # apply normalizing flows
-        nf_offset = 0
-        for n in range(self.num_flows):
-            z, log_det = self.nf_cells[n](z, ftr)
-            log_q_conv -= log_det
-        nf_offset += self.num_flows
+        nf_offset = 0                                       ###################################
+        for n in range(self.num_flows):                     #                                 #
+            z, log_det = self.nf_cells[n](z, ftr)           #  BY DEFAULT ARGS, NOT APPLIED   #
+            log_q_conv -= log_det                           #                                 #
+        nf_offset += self.num_flows                         ###################################
         all_q = [dist]
         all_log_q = [log_q_conv]
 
@@ -444,21 +444,21 @@ class AutoEncoder(nn.Module):
         logits = self.image_conditional(s)
 
         # compute kl
-        kl_all = []
-        kl_diag = []
-        log_p, log_q = 0., 0.
-        for q, p, log_q_conv, log_p_conv in zip(all_q, all_p, all_log_q, all_log_p):
-            if self.with_nf:
-                kl_per_var = log_q_conv - log_p_conv
-            else:
-                kl_per_var = q.kl(p)
+        # kl_all = []
+        # kl_diag = []
+        # log_p, log_q = 0., 0.
+        # for q, p, log_q_conv, log_p_conv in zip(all_q, all_p, all_log_q, all_log_p):
+        #     if self.with_nf:
+        #         kl_per_var = log_q_conv - log_p_conv
+        #     else:
+        #         kl_per_var = q.kl(p)
 
-            kl_diag.append(torch.mean(torch.sum(kl_per_var, dim=[2, 3]), dim=0))
-            kl_all.append(torch.sum(kl_per_var, dim=[1, 2, 3]))
-            log_q += torch.sum(log_q_conv, dim=[1, 2, 3])
-            log_p += torch.sum(log_p_conv, dim=[1, 2, 3])
+        #     kl_diag.append(torch.mean(torch.sum(kl_per_var, dim=[2, 3]), dim=0))
+        #     kl_all.append(torch.sum(kl_per_var, dim=[1, 2, 3]))
+        #     log_q += torch.sum(log_q_conv, dim=[1, 2, 3])
+        #     log_p += torch.sum(log_p_conv, dim=[1, 2, 3])
 
-        return logits, log_q, log_p, kl_all, kl_diag
+        return logits # , log_q, log_p, kl_all, kl_diag
 
     def sample(self, num_samples, t):
         scale_ind = 0
