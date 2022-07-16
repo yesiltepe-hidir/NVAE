@@ -270,7 +270,7 @@ class AutoEncoder(nn.Module):
             for g in range(self.groups_per_scale[self.num_latent_scales - s - 1]):
                 # build mu, sigma generator for encoder
                 num_c = int(self.num_channels_enc * mult)
-                cell = Conv2D(num_c, 2 * self.num_latent_per_group, kernel_size=3, padding=1, bias=True)
+                cell = Conv2D(num_c, 1 * self.num_latent_per_group, kernel_size=3, padding=1, bias=True)
                 enc_sampler.append(cell)
                 # build NF
                 for n in range(self.num_flows):
@@ -282,7 +282,7 @@ class AutoEncoder(nn.Module):
                     num_c = int(self.num_channels_dec * mult)
                     cell = nn.Sequential(
                         nn.ELU(),
-                        Conv2D(num_c, 2 * self.num_latent_per_group, kernel_size=1, padding=0, bias=True))
+                        Conv2D(num_c, 1 * self.num_latent_per_group, kernel_size=1, padding=0, bias=True))
                     dec_sampler.append(cell)
 
             mult = mult / CHANNEL_MULT
@@ -372,12 +372,12 @@ class AutoEncoder(nn.Module):
         combiner_cells_s.reverse()
 
         idx_dec = 0
-        ftr = self.enc0(s)                                  # Ftr size        : [200, 128, 8, 8], same as size of s.
-        param0 = self.enc_sampler[idx_dec](ftr)             # param0          : [200,  40, 8, 8]
-        mu_q, log_sig_q = torch.chunk(param0, 2, dim=1)     # mu_q, log_sig_q : [200,  20, 8, 8]
-        dist = Normal(mu_q, log_sig_q)                      # for the first approx. posterior
-        z, _ = dist.sample()                                # z               : [200,  20, 8, 8] 
-        log_q_conv = dist.log_p(z)                          # log_q_conv      : [200,  20, 8, 8]
+        ftr = self.enc0(s)                                    # Ftr size        : [200, 128, 8, 8], same as size of s.
+        z = self.enc_sampler[idx_dec](ftr)                    # param0          : [200,  40, 8, 8]
+        # mu_q, log_sig_q = torch.chunk(param0, 2, dim=1)     # mu_q, log_sig_q : [200,  20, 8, 8]
+        # dist = Normal(mu_q, log_sig_q)                      # for the first approx. posterior
+        # z, _ = dist.sample()                                # z               : [200,  20, 8, 8] 
+        # log_q_conv = dist.log_p(z)                          # log_q_conv      : [200,  20, 8, 8]
 
         # apply normalizing flows
         nf_offset = 0                                       ###################################
@@ -385,53 +385,62 @@ class AutoEncoder(nn.Module):
             z, log_det = self.nf_cells[n](z, ftr)           #  BY DEFAULT ARGS, NOT APPLIED   #
             log_q_conv -= log_det                           #                                 #
         nf_offset += self.num_flows                         ###################################
-        all_q = [dist]
-        all_log_q = [log_q_conv]
+        # all_q = [dist]
+        # all_log_q = [log_q_conv]
 
         # To make sure we do not pass any deterministic features from x to decoder.
         s = 0
 
         # prior for z0
-        dist = Normal(mu=torch.zeros_like(z), log_sigma=torch.zeros_like(z))
-        log_p_conv = dist.log_p(z)
-        all_p = [dist]
-        all_log_p = [log_p_conv]
+        # dist = Normal(mu=torch.zeros_like(z), log_sigma=torch.zeros_like(z))
+        # log_p_conv = dist.log_p(z)
+        # all_p = [dist]
+        # all_log_p = [log_p_conv]
 
         idx_dec = 0
         s = self.prior_ftr0.unsqueeze(0)
         batch_size = z.size(0)
         s = s.expand(batch_size, -1, -1, -1)
+        
+        embedding_loss = torch.zeros((z.size(0), z.size(1)), requires_grad=True).cuda()
+        embedding_loss.retain_grad()
+
         for cell in self.dec_tower:
             if cell.cell_type == 'combiner_dec':
                 if idx_dec > 0:
                     # form prior
-                    param = self.dec_sampler[idx_dec - 1](s)
-                    mu_p, log_sig_p = torch.chunk(param, 2, dim=1)
+                    # param = self.dec_sampler[idx_dec - 1](s)
+                    # mu_p, log_sig_p = torch.chunk(param, 2, dim=1)
 
                     # form encoder
                     ftr = combiner_cells_enc[idx_dec - 1](combiner_cells_s[idx_dec - 1], s)
-                    param = self.enc_sampler[idx_dec](ftr)
-                    mu_q, log_sig_q = torch.chunk(param, 2, dim=1)
-                    dist = Normal(mu_p + mu_q, log_sig_p + log_sig_q) if self.res_dist else Normal(mu_q, log_sig_q)
-                    z, _ = dist.sample()
-                    log_q_conv = dist.log_p(z)
+                    z = self.enc_sampler[idx_dec](ftr)
+
+                    # To compute embedding loss
+                    z_norm = torch.linalg.norm(z, dim=[-1, -2])
+                    embedding_loss = embedding_loss + z_norm
+
+                    # mu_q, log_sig_q = torch.chunk(param, 2, dim=1)
+                    # dist = Normal(mu_p + mu_q, log_sig_p + log_sig_q) if self.res_dist else Normal(mu_q, log_sig_q)
+                    # z, _ = dist.sample()
+                    # log_q_conv = dist.log_p(z)
                     # apply NF
                     for n in range(self.num_flows):
                         z, log_det = self.nf_cells[nf_offset + n](z, ftr)
                         log_q_conv -= log_det
                     nf_offset += self.num_flows
-                    all_log_q.append(log_q_conv)
-                    all_q.append(dist)
+                    # all_log_q.append(log_q_conv)
+                    # all_q.append(dist)
 
                     # evaluate log_p(z)
-                    dist = Normal(mu_p, log_sig_p)
-                    log_p_conv = dist.log_p(z)
-                    all_p.append(dist)
-                    all_log_p.append(log_p_conv)
-
+                    # dist = Normal(mu_p, log_sig_p)
+                    # log_p_conv = dist.log_p(z)
+                    # all_p.append(dist)
+                    # all_log_p.append(log_p_conv)
+                print(f's : {s.size()} - z : {z.size()}')
                 # 'combiner_dec'
-                s = cell(s, z)
-                idx_dec += 1
+                s = cell(s, z)              # s: [200, 128, 8, 8]
+                idx_dec += 1                # z: [200,  20, 8, 8]
             else:
                 s = cell(s)
 
@@ -442,6 +451,8 @@ class AutoEncoder(nn.Module):
             s = cell(s)
 
         logits = self.image_conditional(s)
+        embedding_loss_reduced = torch.mean(embedding_loss, dim=[0, 1])
+        print("embedding size:", embedding_loss_reduced.size())
 
         # compute kl
         # kl_all = []
@@ -458,7 +469,7 @@ class AutoEncoder(nn.Module):
         #     log_q += torch.sum(log_q_conv, dim=[1, 2, 3])
         #     log_p += torch.sum(log_p_conv, dim=[1, 2, 3])
 
-        return logits # , log_q, log_p, kl_all, kl_diag
+        return logits, embedding_loss_reduced # , log_q, log_p, kl_all, kl_diag
 
     def sample(self, num_samples, t):
         scale_ind = 0

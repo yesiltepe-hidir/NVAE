@@ -131,28 +131,28 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
         cnn_optimizer.zero_grad()
         with autocast():
-            logits, log_q, log_p, kl_all, kl_diag = model(x)
+            logits, embedding_loss = model(x)
 
             output = model.decoder_output(logits)
-            kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
-                                      args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
+            # kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
+            #                           args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
 
             recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
-            balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
+            # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
-            nelbo_batch = recon_loss + balanced_kl
-            loss = torch.mean(nelbo_batch)
-            norm_loss = model.spectral_norm_parallel()
-            bn_loss = model.batchnorm_loss()
+            # nelbo_batch = recon_loss + balanced_kl
+            loss = torch.mean(recon_loss) + embedding_loss * args.embedding_weight
+            # norm_loss = model.spectral_norm_parallel()
+            # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
-            if args.weight_decay_norm_anneal:
-                assert args.weight_decay_norm_init > 0 and args.weight_decay_norm > 0, 'init and final wdn should be positive.'
-                wdn_coeff = (1. - kl_coeff) * np.log(args.weight_decay_norm_init) + kl_coeff * np.log(args.weight_decay_norm)
-                wdn_coeff = np.exp(wdn_coeff)
-            else:
-                wdn_coeff = args.weight_decay_norm
+            # if args.weight_decay_norm_anneal:
+            #     assert args.weight_decay_norm_init > 0 and args.weight_decay_norm > 0, 'init and final wdn should be positive.'
+            #     wdn_coeff = (1. - kl_coeff) * np.log(args.weight_decay_norm_init) + kl_coeff * np.log(args.weight_decay_norm)
+            #     wdn_coeff = np.exp(wdn_coeff)
+            # else:
+            #     wdn_coeff = args.weight_decay_norm
 
-            loss += norm_loss * wdn_coeff + bn_loss * wdn_coeff
+            # loss += norm_loss * wdn_coeff + bn_loss * wdn_coeff
 
         grad_scalar.scale(loss).backward()
         utils.average_gradients(model.parameters(), args.distributed)
@@ -172,8 +172,8 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
                 writer.add_image('reconstruction', in_out_tiled, global_step)
 
             # norm
-            writer.add_scalar('train/norm_loss', norm_loss, global_step)
-            writer.add_scalar('train/bn_loss', bn_loss, global_step)
+            # writer.add_scalar('train/norm_loss', norm_loss, global_step)
+            # writer.add_scalar('train/bn_loss', bn_loss, global_step)
             writer.add_scalar('train/norm_coeff', wdn_coeff, global_step)
 
             utils.average_tensor(nelbo.avg, args.distributed)
@@ -182,20 +182,20 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             writer.add_scalar('train/lr', cnn_optimizer.state_dict()[
                               'param_groups'][0]['lr'], global_step)
             writer.add_scalar('train/nelbo_iter', loss, global_step)
-            writer.add_scalar('train/kl_iter', torch.mean(sum(kl_all)), global_step)
+            # writer.add_scalar('train/kl_iter', torch.mean(sum(kl_all)), global_step)
             writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.crop_output)), global_step)
-            writer.add_scalar('kl_coeff/coeff', kl_coeff, global_step)
-            total_active = 0
-            for i, kl_diag_i in enumerate(kl_diag):
-                utils.average_tensor(kl_diag_i, args.distributed)
-                num_active = torch.sum(kl_diag_i > 0.1).detach()
-                total_active += num_active
+            # writer.add_scalar('kl_coeff/coeff', kl_coeff, global_step)
+            # total_active = 0
+            # for i, kl_diag_i in enumerate(kl_diag):
+            #     utils.average_tensor(kl_diag_i, args.distributed)
+            #     num_active = torch.sum(kl_diag_i > 0.1).detach()
+            #     total_active += num_active
 
-                # kl_ceoff
-                writer.add_scalar('kl/active_%d' % i, num_active, global_step)
-                writer.add_scalar('kl_coeff/layer_%d' % i, kl_coeffs[i], global_step)
-                writer.add_scalar('kl_vals/layer_%d' % i, kl_vals[i], global_step)
-            writer.add_scalar('kl/total_active', total_active, global_step)
+            #     # kl_ceoff
+            #     writer.add_scalar('kl/active_%d' % i, num_active, global_step)
+            #     writer.add_scalar('kl_coeff/layer_%d' % i, kl_coeffs[i], global_step)
+            #     writer.add_scalar('kl_vals/layer_%d' % i, kl_vals[i], global_step)
+            # writer.add_scalar('kl/total_active', total_active, global_step)
 
         global_step += 1
 
@@ -298,6 +298,10 @@ def cleanup():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
+    # RAE arguments
+    parser.add_argument('--embedding_weight', type=float, default=1e-4)
+
+
     # experimental results
     parser.add_argument('--root', type=str, default='/tmp/nasvae/expr',
                         help='location of the results')
