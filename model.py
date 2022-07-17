@@ -437,7 +437,7 @@ class AutoEncoder(nn.Module):
                     # log_p_conv = dist.log_p(z)
                     # all_p.append(dist)
                     # all_log_p.append(log_p_conv)
-                print(f's : {s.size()} - z : {z.size()}')
+                #print(f's : {s.size()} - z : {z.size()}')
                 # 'combiner_dec'
                 s = cell(s, z)              # s: [200, 128, 8, 8]
                 idx_dec += 1                # z: [200,  20, 8, 8]
@@ -450,9 +450,12 @@ class AutoEncoder(nn.Module):
         for cell in self.post_process:
             s = cell(s)
 
+        # print('final s:', s.size())
         logits = self.image_conditional(s)
+        # print('final logits:', logits.size())
+        # print('-'*20)
         embedding_loss_reduced = torch.mean(embedding_loss, dim=[0, 1])
-        print("embedding size:", embedding_loss_reduced.size())
+        #print("embedding size:", embedding_loss_reduced.size())
 
         # compute kl
         # kl_all = []
@@ -485,10 +488,10 @@ class AutoEncoder(nn.Module):
             if cell.cell_type == 'combiner_dec':
                 if idx_dec > 0:
                     # form prior
-                    param = self.dec_sampler[idx_dec - 1](s)
-                    mu, log_sigma = torch.chunk(param, 2, dim=1)
-                    dist = Normal(mu, log_sigma, t)
-                    z, _ = dist.sample()
+                    z = self.dec_sampler[idx_dec - 1](s)
+                    # mu, log_sigma = torch.chunk(param, 2, dim=1)
+                    # dist = Normal(mu, log_sigma, t)
+                    # z, _ = dist.sample()
 
                 # 'combiner_dec'
                 s = cell(s, z)

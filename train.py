@@ -4,7 +4,7 @@
 # This work is licensed under the NVIDIA Source Code License
 # for NVAE. To view a copy of this license, see the LICENSE file.
 # ---------------------------------------------------------------
-
+import matplotlib.pyplot as plt
 import argparse
 import torch
 import torch.nn as nn
@@ -92,7 +92,7 @@ def main(args):
         logging.info('epoch %d', epoch)
 
         # Training.
-        train_nelbo, global_step = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
+        train_nelbo, global_step, logits = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
      
@@ -101,7 +101,7 @@ def main(args):
                 logging.info('saving the model.')
                 torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
                             'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
-                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(),
+                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits,
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
 
     writer.close()
@@ -155,7 +155,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # loss += norm_loss * wdn_coeff + bn_loss * wdn_coeff
 
         grad_scalar.scale(loss).backward()
-        utils.average_gradients(model.parameters(), args.distributed)
+        # utils.average_gradients(model.parameters(), args.distributed)
         grad_scalar.step(cnn_optimizer)
         grad_scalar.update()
         nelbo.update(loss.data, 1)
@@ -174,7 +174,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # norm
             # writer.add_scalar('train/norm_loss', norm_loss, global_step)
             # writer.add_scalar('train/bn_loss', bn_loss, global_step)
-            writer.add_scalar('train/norm_coeff', wdn_coeff, global_step)
+            #writer.add_scalar('train/norm_coeff', wdn_coeff, global_step)
 
             utils.average_tensor(nelbo.avg, args.distributed)
             logging.info('train %d %f', global_step, nelbo.avg)
@@ -200,7 +200,9 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
         global_step += 1
 
     utils.average_tensor(nelbo.avg, args.distributed)
-    return nelbo.avg, global_step
+
+
+    return nelbo.avg, global_step, logits
 
 
 def test(valid_queue, model, num_samples, args, logging):
