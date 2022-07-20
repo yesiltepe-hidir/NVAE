@@ -78,7 +78,8 @@ def main(args):
         global_step = checkpoint['global_step']
     else:
         global_step, init_epoch = 0, 0
-
+    
+    losses = []
     for epoch in range(init_epoch, args.epochs):
         # update lrs.
         if args.distributed:
@@ -92,16 +93,17 @@ def main(args):
         logging.info('epoch %d', epoch)
 
         # Training.
-        train_nelbo, global_step, logits = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
+        train_nelbo, global_step, logits, losses_queue = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
+        losses.append(losses_queue)
      
         if epoch == (args.epochs - 1):
             if args.global_rank == 0:
                 logging.info('saving the model.')
                 torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
                             'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
-                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits,
+                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits, 'losses': losses,
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
 
     writer.close()
@@ -112,6 +114,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
                                       groups_per_scale=model.groups_per_scale, fun='square')
     nelbo = utils.AvgrageMeter()
     model.train()
+    loss_queue = []
     for step, x in enumerate(train_queue):
         x = x[0] if len(x) > 1 else x
         x = x.cuda()
@@ -138,6 +141,8 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             #                           args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
 
             recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
+            if step % 30 == 0:
+                loss_queue.append(recon_loss)
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             # nelbo_batch = recon_loss + balanced_kl
@@ -202,7 +207,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
     utils.average_tensor(nelbo.avg, args.distributed)
 
 
-    return nelbo.avg, global_step, logits
+    return nelbo.avg, global_step, logits, loss_queue
 
 
 def test(valid_queue, model, num_samples, args, logging):
