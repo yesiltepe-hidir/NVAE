@@ -142,7 +142,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
             recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
             if step % 30 == 0:
-                loss_queue.append(recon_loss)
+                loss_queue.append(recon_loss.mean().item())
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             # nelbo_batch = recon_loss + balanced_kl
