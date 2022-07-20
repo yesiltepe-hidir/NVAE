@@ -96,7 +96,7 @@ def main(args):
         train_nelbo, global_step, logits, losses_queue = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
-        losses.append(losses_queue)
+        losses.extend(losses_queue)
      
         if epoch == (args.epochs - 1):
             if args.global_rank == 0:
