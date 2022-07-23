@@ -93,7 +93,7 @@ def main(args):
         logging.info('epoch %d', epoch)
 
         # Training.
-        train_nelbo, global_step, logits, losses_queue = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
+        train_nelbo, global_step, logits, losses_queue, z0 = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
         losses.extend(losses_queue)
@@ -103,7 +103,7 @@ def main(args):
                 logging.info('saving the model.')
                 torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
                             'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
-                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits, 'losses': losses,
+                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits, 'losses': losses, 'z0': z0,
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
 
     writer.close()
@@ -134,7 +134,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
         cnn_optimizer.zero_grad()
         with autocast():
-            logits, embedding_loss = model(x)
+            logits, embedding_loss, l2_loss, z0 = model(x)
 
             output = model.decoder_output(logits)
             # kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
@@ -143,10 +143,12 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
             if step % 30 == 0:
                 loss_queue.append(recon_loss.mean().item())
+            
+            print('recon: {:.4f} - emb: {:.4f} - l2: {:.4f}'.format(recon_loss.mean().item(), embedding_loss.item(), l2_loss.item()))
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             # nelbo_batch = recon_loss + balanced_kl
-            loss = torch.mean(recon_loss) + embedding_loss * args.embedding_weight
+            loss = torch.mean(recon_loss) + embedding_loss * args.embedding_weight + l2_loss * args.l2_weight
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -207,7 +209,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
     utils.average_tensor(nelbo.avg, args.distributed)
 
 
-    return nelbo.avg, global_step, logits, loss_queue
+    return nelbo.avg, global_step, logits, loss_queue, z0
 
 
 def test(valid_queue, model, num_samples, args, logging):
@@ -307,7 +309,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
     # RAE arguments
     parser.add_argument('--embedding_weight', type=float, default=1e-4)
-
+    parser.add_argument('--l2_weight', type=float, default=10)
 
     # experimental results
     parser.add_argument('--root', type=str, default='/tmp/nasvae/expr',
