@@ -112,6 +112,7 @@ class AutoEncoder(nn.Module):
         self.use_se = args.use_se
         self.res_dist = args.res_dist
         self.num_bits = args.num_x_bits
+        self.mse = nn.MSELoss()
                                                                 # EXPLANATION:                                             |   DEFAULT VALUE:
         self.num_latent_scales = args.num_latent_scales         # number of spatial scales that latent layers will reside  |    1  
         self.num_groups_per_scale = args.num_groups_per_scale   # number of groups of latent vars. per scale               |   10
@@ -374,6 +375,7 @@ class AutoEncoder(nn.Module):
         idx_dec = 0
         ftr = self.enc0(s)                                    # Ftr size        : [200, 128, 8, 8], same as size of s.
         z = self.enc_sampler[idx_dec](ftr)                    # param0          : [200,  40, 8, 8]
+        z0 = z
         # mu_q, log_sig_q = torch.chunk(param0, 2, dim=1)     # mu_q, log_sig_q : [200,  20, 8, 8]
         # dist = Normal(mu_q, log_sig_q)                      # for the first approx. posterior
         # z, _ = dist.sample()                                # z               : [200,  20, 8, 8] 
@@ -403,22 +405,25 @@ class AutoEncoder(nn.Module):
         s = s.expand(batch_size, -1, -1, -1)
         
         embedding_loss = torch.zeros((z.size(0), z.size(1)), requires_grad=True).cuda()
-        embedding_loss.retain_grad()
+        l2_loss = torch.zeros((1,), requires_grad=True).cuda()
 
         for cell in self.dec_tower:
             if cell.cell_type == 'combiner_dec':
                 if idx_dec > 0:
                     # form prior
-                    # param = self.dec_sampler[idx_dec - 1](s)
+                    z_ = self.dec_sampler[idx_dec - 1](s)
                     # mu_p, log_sig_p = torch.chunk(param, 2, dim=1)
 
                     # form encoder
                     ftr = combiner_cells_enc[idx_dec - 1](combiner_cells_s[idx_dec - 1], s)
                     z = self.enc_sampler[idx_dec](ftr)
 
-                    # To compute embedding loss
+                    # Compute embedding loss
                     z_norm = torch.linalg.norm(z, dim=[-1, -2])
-                    embedding_loss = embedding_loss + z_norm
+                    embedding_loss += z_norm
+
+                    # Compute L2 Loss
+                    l2_loss += self.mse(z_, z)
 
                     # mu_q, log_sig_q = torch.chunk(param, 2, dim=1)
                     # dist = Normal(mu_p + mu_q, log_sig_p + log_sig_q) if self.res_dist else Normal(mu_q, log_sig_q)
@@ -472,7 +477,7 @@ class AutoEncoder(nn.Module):
         #     log_q += torch.sum(log_q_conv, dim=[1, 2, 3])
         #     log_p += torch.sum(log_p_conv, dim=[1, 2, 3])
 
-        return logits, embedding_loss_reduced # , log_q, log_p, kl_all, kl_diag
+        return logits, embedding_loss_reduced, l2_loss, z0 # , log_q, log_p, kl_all, kl_diag
 
     def sample(self, num_samples, t):
         scale_ind = 0
