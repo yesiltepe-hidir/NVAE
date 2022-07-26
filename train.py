@@ -144,11 +144,12 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             if step % 30 == 0:
                 loss_queue.append(recon_loss.mean().item())
             
-            print('recon: {:.4f} - emb: {:.4f} - l2: {:.4f}'.format(recon_loss.mean().item(), embedding_loss.item(), l2_loss.item()))
+            # print('recon: {:.4f} - emb: {:.4f} - l2: {:.4f}'.format(recon_loss.mean().item(), embedding_loss.item(), l2_loss.item()))
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             # nelbo_batch = recon_loss + balanced_kl
-            loss = torch.mean(recon_loss) + embedding_loss * args.embedding_weight + l2_loss * args.l2_weight
+            norm_loss = model.spectral_norm_parallel()
+            loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -308,7 +309,7 @@ def cleanup():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
     # RAE arguments
-    parser.add_argument('--embedding_weight', type=float, default=1e-4)
+    parser.add_argument('--embedding_weight', type=float, default=0)
     parser.add_argument('--l2_weight', type=float, default=10)
 
     # experimental results
@@ -333,7 +334,7 @@ if __name__ == '__main__':
                         help='min learning rate')
     parser.add_argument('--weight_decay', type=float, default=3e-4,
                         help='weight decay')
-    parser.add_argument('--weight_decay_norm', type=float, default=0.,
+    parser.add_argument('--weight_decay_norm', type=float, default=1e-2,
                         help='The lambda parameter for spectral regularization.')
     parser.add_argument('--weight_decay_norm_init', type=float, default=10.,
                         help='The initial lambda parameter')
