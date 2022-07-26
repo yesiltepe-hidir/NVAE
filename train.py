@@ -93,7 +93,7 @@ def main(args):
         logging.info('epoch %d', epoch)
 
         # Training.
-        train_nelbo, global_step, logits, losses_queue, z0 = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
+        train_nelbo, global_step, logits, losses_queue, z0, data = train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging)
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
         losses.extend(losses_queue)
@@ -103,7 +103,7 @@ def main(args):
                 logging.info('saving the model.')
                 torch.save({'epoch': epoch + 1, 'state_dict': model.state_dict(),
                             'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
-                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits, 'losses': losses, 'z0': z0,
+                            'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits, 'losses': losses, 'z0': z0,  'data': data,
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
 
     writer.close()
@@ -134,9 +134,9 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
         cnn_optimizer.zero_grad()
         with autocast():
-            logits, embedding_loss, l2_loss, z0 = model(x)
+            output, embedding_loss, l2_loss, z0 = model(x)
 
-            output = model.decoder_output(logits)
+            # output = model.decoder_output(logits)
             # kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
             #                           args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
 
@@ -148,8 +148,9 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             # nelbo_batch = recon_loss + balanced_kl
-            norm_loss = model.spectral_norm_parallel()
-            loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
+            # norm_loss = model.spectral_norm_parallel()
+            # loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
+            loss = recon_loss
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -168,49 +169,49 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
         grad_scalar.update()
         nelbo.update(loss.data, 1)
 
-        if (global_step + 1) % 100 == 0:
-            if (global_step + 1) % 1000 == 0:  # reduced frequency
-                n = int(np.floor(np.sqrt(x.size(0))))
-                x_img = x[:n*n]
-                output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
-                output_img = output_img[:n*n]
-                x_tiled = utils.tile_image(x_img, n)
-                output_tiled = utils.tile_image(output_img, n)
-                in_out_tiled = torch.cat((x_tiled, output_tiled), dim=2)
-                writer.add_image('reconstruction', in_out_tiled, global_step)
+        # if (global_step + 1) % 100 == 0:
+        #     if (global_step + 1) % 1000 == 0:  # reduced frequency
+        #         n = int(np.floor(np.sqrt(x.size(0))))
+        #         x_img = x[:n*n]
+        #         output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
+        #         output_img = output_img[:n*n]
+        #         x_tiled = utils.tile_image(x_img, n)
+        #         output_tiled = utils.tile_image(output_img, n)
+        #         in_out_tiled = torch.cat((x_tiled, output_tiled), dim=2)
+        #         writer.add_image('reconstruction', in_out_tiled, global_step)
 
-            # norm
-            # writer.add_scalar('train/norm_loss', norm_loss, global_step)
-            # writer.add_scalar('train/bn_loss', bn_loss, global_step)
-            #writer.add_scalar('train/norm_coeff', wdn_coeff, global_step)
+        #     # norm
+        #     # writer.add_scalar('train/norm_loss', norm_loss, global_step)
+        #     # writer.add_scalar('train/bn_loss', bn_loss, global_step)
+        #     #writer.add_scalar('train/norm_coeff', wdn_coeff, global_step)
 
-            utils.average_tensor(nelbo.avg, args.distributed)
-            logging.info('train %d %f', global_step, nelbo.avg)
-            writer.add_scalar('train/nelbo_avg', nelbo.avg, global_step)
-            writer.add_scalar('train/lr', cnn_optimizer.state_dict()[
-                              'param_groups'][0]['lr'], global_step)
-            writer.add_scalar('train/nelbo_iter', loss, global_step)
-            # writer.add_scalar('train/kl_iter', torch.mean(sum(kl_all)), global_step)
-            writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.crop_output)), global_step)
-            # writer.add_scalar('kl_coeff/coeff', kl_coeff, global_step)
-            # total_active = 0
-            # for i, kl_diag_i in enumerate(kl_diag):
-            #     utils.average_tensor(kl_diag_i, args.distributed)
-            #     num_active = torch.sum(kl_diag_i > 0.1).detach()
-            #     total_active += num_active
+        #     utils.average_tensor(nelbo.avg, args.distributed)
+        #     logging.info('train %d %f', global_step, nelbo.avg)
+        #     writer.add_scalar('train/nelbo_avg', nelbo.avg, global_step)
+        #     writer.add_scalar('train/lr', cnn_optimizer.state_dict()[
+        #                       'param_groups'][0]['lr'], global_step)
+        #     writer.add_scalar('train/nelbo_iter', loss, global_step)
+        #     # writer.add_scalar('train/kl_iter', torch.mean(sum(kl_all)), global_step)
+        #     writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.crop_output)), global_step)
+        #     # writer.add_scalar('kl_coeff/coeff', kl_coeff, global_step)
+        #     # total_active = 0
+        #     # for i, kl_diag_i in enumerate(kl_diag):
+        #     #     utils.average_tensor(kl_diag_i, args.distributed)
+        #     #     num_active = torch.sum(kl_diag_i > 0.1).detach()
+        #     #     total_active += num_active
 
-            #     # kl_ceoff
-            #     writer.add_scalar('kl/active_%d' % i, num_active, global_step)
-            #     writer.add_scalar('kl_coeff/layer_%d' % i, kl_coeffs[i], global_step)
-            #     writer.add_scalar('kl_vals/layer_%d' % i, kl_vals[i], global_step)
-            # writer.add_scalar('kl/total_active', total_active, global_step)
+        #     #     # kl_ceoff
+        #     #     writer.add_scalar('kl/active_%d' % i, num_active, global_step)
+        #     #     writer.add_scalar('kl_coeff/layer_%d' % i, kl_coeffs[i], global_step)
+        #     #     writer.add_scalar('kl_vals/layer_%d' % i, kl_vals[i], global_step)
+        #     # writer.add_scalar('kl/total_active', total_active, global_step)
 
         global_step += 1
 
     utils.average_tensor(nelbo.avg, args.distributed)
 
 
-    return nelbo.avg, global_step, logits, loss_queue, z0
+    return nelbo.avg, global_step, output, loss_queue, z0, x
 
 
 def test(valid_queue, model, num_samples, args, logging):

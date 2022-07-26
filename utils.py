@@ -238,17 +238,14 @@ def log_iw(decoder, x, log_q, log_p, crop=False):
     return - recon - log_q + log_p
 
 
-def reconstruction_loss(decoder, x, crop=False):
-    from distributions import Normal, DiscMixLogistic
-
-    recon = decoder.log_prob(x)
-    if crop:
-        recon = recon[:, :, 2:30, 2:30]
+def reconstruction_loss(y_pred, y_true, crop=False):
     
-    if isinstance(decoder, DiscMixLogistic):
-        return - torch.sum(recon, dim=[1, 2])    # summation over RGB is done.
-    else:
-        return - torch.sum(recon, dim=[1, 2, 3])
+    if crop:
+        y_pred = y_pred[:, :, 2:30, 2:30]
+        y_true = y_true[:, :, 2:30, 2:30]
+    
+    loss = torch.mean(torch.sum(torch.square(y_true - y_pred), axis=[-1,  -2, -3]))
+    return loss
 
 
 def tile_image(batch_image, n):

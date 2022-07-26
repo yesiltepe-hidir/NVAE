@@ -340,18 +340,17 @@ class AutoEncoder(nn.Module):
         if self.dataset in {'mnist', 'omniglot'}:
             C_out = 1
         else:
-            if self.num_mix_output == 1:
-                C_out = 2 * 3
-            else:
-                C_out = 10 * self.num_mix_output
+            C_out = 3
+
         return nn.Sequential(nn.ELU(),
-                             Conv2D(C_in, C_out, 3, padding=1, bias=True))
+                             Conv2D(C_in, C_out, 3, padding=1, bias=True),
+                             nn.Sigmoid())
 
     def forward(self, x):       
         ##################################### ENCODER #########################################################################
                                         #     [B x C x H x W]
         # Normalize x between -1, 1     # x:  [200,  1, 32, 32]   
-        s = self.stem(2 * x - 1.0)      # s:  [200, 32, 32, 32] 
+        s = self.stem(x)                # s:  [200, 32, 32, 32] 
 
         # perform pre-processing        # There are 6 cells in self.preprocess. According to their effect on size of s we have:
         for cell in self.pre_process:   # [Idendity, Idendity, Downsample,   Idendity, Idendity, Downsample]
