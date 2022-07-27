@@ -253,7 +253,7 @@ def _data_transforms_mnist(args):
     valid_transform = transforms.Compose([
         transforms.Pad(padding=2),
         transforms.ToTensor(),
-        # Binarize(),
+        # Binarize() ,
     ])
 
     return train_transform, valid_transform

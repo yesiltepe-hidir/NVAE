@@ -134,7 +134,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
         cnn_optimizer.zero_grad()
         with autocast():
-            output, embedding_loss, l2_loss, z0 = model(x)
+            output, embedding_loss, z0 = model(x)
 
             # output = model.decoder_output(logits)
             # kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
@@ -142,7 +142,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
             recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
             if step % 30 == 0:
-                loss_queue.append(recon_loss.mean().item())
+                loss_queue.append(recon_loss.item())
             
             # print('recon: {:.4f} - emb: {:.4f} - l2: {:.4f}'.format(recon_loss.mean().item(), embedding_loss.item(), l2_loss.item()))
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
@@ -150,7 +150,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # nelbo_batch = recon_loss + balanced_kl
             # norm_loss = model.spectral_norm_parallel()
             # loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
-            loss = recon_loss
+            loss = recon_loss + embedding_loss * args.embedding_weight
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -310,8 +310,8 @@ def cleanup():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
     # RAE arguments
-    parser.add_argument('--embedding_weight', type=float, default=0)
-    parser.add_argument('--l2_weight', type=float, default=10)
+    parser.add_argument('--embedding_weight', type=float, default=1e-4)
+    parser.add_argument('--l2_weight', type=float, default=0)
 
     # experimental results
     parser.add_argument('--root', type=str, default='/tmp/nasvae/expr',
