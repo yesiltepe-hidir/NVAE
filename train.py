@@ -110,8 +110,8 @@ def main(args):
 
 
 def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_iters, writer, logging):
-    alpha_i = utils.kl_balancer_coeff(num_scales=model.num_latent_scales,
-                                      groups_per_scale=model.groups_per_scale, fun='square')
+    # alpha_i = utils.kl_balancer_coeff(num_scales=model.num_latent_scales,
+    #                                   groups_per_scale=model.groups_per_scale, fun='square')
     nelbo = utils.AvgrageMeter()
     model.train()
     loss_queue = []
@@ -134,7 +134,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
 
         cnn_optimizer.zero_grad()
         with autocast():
-            output, embedding_loss, z0 = model(x)
+            output, embedding_loss, l2_loss, z0 = model(x)
 
             # output = model.decoder_output(logits)
             # kl_coeff = utils.kl_coeff(global_step, args.kl_anneal_portion * args.num_total_iter,
@@ -150,7 +150,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # nelbo_batch = recon_loss + balanced_kl
             # norm_loss = model.spectral_norm_parallel()
             # loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
-            loss = recon_loss + embedding_loss * args.embedding_weight
+            loss = recon_loss + embedding_loss * args.embedding_weight + l2_loss * args.l2_weight 
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -311,7 +311,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
     # RAE arguments
     parser.add_argument('--embedding_weight', type=float, default=1e-4)
-    parser.add_argument('--l2_weight', type=float, default=0)
+    parser.add_argument('--l2_weight', type=float, default=1)
 
     # experimental results
     parser.add_argument('--root', type=str, default='/tmp/nasvae/expr',
