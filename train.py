@@ -148,9 +148,9 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             # nelbo_batch = recon_loss + balanced_kl
-            # norm_loss = model.spectral_norm_parallel()
+            norm_loss = model.spectral_norm_parallel()
             # loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
-            loss = recon_loss + embedding_loss * args.embedding_weight + l2_loss * args.l2_weight 
+            loss = recon_loss + embedding_loss * args.embedding_weight + l2_loss * args.l2_weight + args.weight_decay_norm * norm_loss
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -310,8 +310,8 @@ def cleanup():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
     # RAE arguments
-    parser.add_argument('--embedding_weight', type=float, default=1e-4)
-    parser.add_argument('--l2_weight', type=float, default=1)
+    parser.add_argument('--embedding_weight', type=float, default=1e-1)
+    parser.add_argument('--l2_weight', type=float, default=50)
 
     # experimental results
     parser.add_argument('--root', type=str, default='/tmp/nasvae/expr',
@@ -335,7 +335,7 @@ if __name__ == '__main__':
                         help='min learning rate')
     parser.add_argument('--weight_decay', type=float, default=3e-4,
                         help='weight decay')
-    parser.add_argument('--weight_decay_norm', type=float, default=1e-2,
+    parser.add_argument('--weight_decay_norm', type=float, default=1e-4,
                         help='The lambda parameter for spectral regularization.')
     parser.add_argument('--weight_decay_norm_init', type=float, default=10.,
                         help='The initial lambda parameter')
