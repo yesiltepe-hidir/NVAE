@@ -455,7 +455,6 @@ class AutoEncoder(nn.Module):
             s = self.stem_decoder(z)
 
         for cell in self.post_process:
-            print(s.size().item())
             s = cell(s)
 
         # print('final s:', s.size())
