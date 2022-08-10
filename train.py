@@ -148,9 +148,9 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
 
             # nelbo_batch = recon_loss + balanced_kl
-            norm_loss = model.spectral_norm_parallel()
+            # norm_loss = model.spectral_norm_parallel()
             # loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
-            loss = recon_loss + embedding_loss * args.embedding_weight + l2_loss * args.l2_weight + args.weight_decay_norm * norm_loss
+            loss = recon_loss + l2_loss * args.l2_weight#embedding_loss * args.embedding_weight + l2_loss * args.l2_weight + args.weight_decay_norm * norm_loss
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -310,8 +310,8 @@ def cleanup():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
     # RAE arguments
-    parser.add_argument('--embedding_weight', type=float, default=1e-1)
-    parser.add_argument('--l2_weight', type=float, default=50)
+    parser.add_argument('--embedding_weight', type=float, default=1e-2)
+    parser.add_argument('--l2_weight', type=float, default=1000)
 
     # experimental results
     parser.add_argument('--root', type=str, default='/tmp/nasvae/expr',
@@ -365,7 +365,7 @@ if __name__ == '__main__':
     # latent variables
     parser.add_argument('--num_latent_scales', type=int, default=1,
                         help='the number of latent scales')
-    parser.add_argument('--num_groups_per_scale', type=int, default=10,
+    parser.add_argument('--num_groups_per_scale', type=int, default=5,
                         help='number of groups of latent variables per scale')
     parser.add_argument('--num_latent_per_group', type=int, default=20,
                         help='number of channels in latent variables per group')
