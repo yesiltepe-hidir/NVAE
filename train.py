@@ -54,7 +54,7 @@ def main(args):
         cnn_optimizer = Adamax(model.parameters(), args.learning_rate,
                                weight_decay=args.weight_decay, eps=1e-3)
     else:
-        cnn_optimizer = torch.optim.Adamax(model.parameters(), args.learning_rate,
+        cnn_optimizer = torch.optim.Adam(model.parameters(), args.learning_rate,
                                            weight_decay=args.weight_decay, eps=1e-3)
 
     cnn_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -97,6 +97,8 @@ def main(args):
         logging.info('train_nelbo %f', train_nelbo)
         writer.add_scalar('train/nelbo', train_nelbo, global_step)
         losses.extend(losses_queue)
+
+        
      
         if epoch == (args.epochs - 1):
             if args.global_rank == 0:
@@ -105,6 +107,11 @@ def main(args):
                             'optimizer': cnn_optimizer.state_dict(), 'global_step': global_step,
                             'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits, 'losses': losses, 'z0': z0,  'data': data,
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
+        
+        elif (global_step + 1) % 10 == 0:
+          save_no = (global_step + 1) // 10
+          checkpoint_file_in = os.path.join(args.save, f'checkpoint_{save_no}.pt')
+          torch.save({'state_dict': model.state_dict()}, checkpoint_file_in)
 
     writer.close()
 
@@ -150,7 +157,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # nelbo_batch = recon_loss + balanced_kl
             # norm_loss = model.spectral_norm_parallel()
             # loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
-            loss = recon_loss + l2_loss * args.l2_weight#embedding_loss * args.embedding_weight + l2_loss * args.l2_weight + args.weight_decay_norm * norm_loss
+            loss = torch.mean(recon_loss + l2_loss * args.l2_weight) #embedding_loss * args.embedding_weight + l2_loss * args.l2_weight + args.weight_decay_norm * norm_loss
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -169,6 +176,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
         grad_scalar.update()
         nelbo.update(loss.data, 1)
 
+        
         # if (global_step + 1) % 100 == 0:
         #     if (global_step + 1) % 1000 == 0:  # reduced frequency
         #         n = int(np.floor(np.sqrt(x.size(0))))
