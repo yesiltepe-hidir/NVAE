@@ -108,7 +108,7 @@ def main(args):
                             'args': args, 'arch_instance': arch_instance, 'scheduler': cnn_scheduler.state_dict(), 'logits': logits, 'losses': losses, 'z0': z0,  'data': data,
                             'grad_scalar': grad_scalar.state_dict()}, checkpoint_file)
         
-        elif (global_step + 1) % 10 == 0:
+        elif (epoch + 1) % 10 == 0:
           save_no = (global_step + 1) // 10
           checkpoint_file_in = os.path.join(args.save, f'checkpoint_{save_no}.pt')
           torch.save({'state_dict': model.state_dict()}, checkpoint_file_in)
