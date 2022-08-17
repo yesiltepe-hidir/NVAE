@@ -408,7 +408,7 @@ class AutoEncoder(nn.Module):
         embedding_loss += torch.mean(torch.square(z.view(z.size(0), -1)))
 
         # L2 Loss
-        l2_loss = torch.zeros((1,), requires_grad=True).cuda()
+        l2_loss = torch.zeros((batch_size,), requires_grad=True).cuda()
         
         for cell in self.dec_tower:
             if cell.cell_type == 'combiner_dec':
@@ -422,10 +422,10 @@ class AutoEncoder(nn.Module):
                     z = self.enc_sampler[idx_dec](ftr)
 
                     # Compute Embedding Loss
-                    embedding_loss += torch.mean(torch.square(z.view(z.size(0), -1)))
+                    # embedding_loss += torch.mean(torch.square(z.view(z.size(0), -1)))
 
                     # Compute L2 Loss
-                    l2_loss += self.mse(z_, z)
+                    l2_loss += torch.mean(torch.square(z - z_), axis = [1, 2, 3])
 
                     # mu_q, log_sig_q = torch.chunk(param, 2, dim=1)
                     # dist = Normal(mu_p + mu_q, log_sig_p + log_sig_q) if self.res_dist else Normal(mu_q, log_sig_q)
