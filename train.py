@@ -54,7 +54,7 @@ def main(args):
         cnn_optimizer = Adamax(model.parameters(), args.learning_rate,
                                weight_decay=args.weight_decay, eps=1e-3)
     else:
-        cnn_optimizer = torch.optim.Adam(model.parameters(), args.learning_rate,
+        cnn_optimizer = torch.optim.Adamax(model.parameters(), args.learning_rate,
                                            weight_decay=args.weight_decay, eps=1e-3)
 
     cnn_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -157,7 +157,7 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             # nelbo_batch = recon_loss + balanced_kl
             # norm_loss = model.spectral_norm_parallel()
             # loss = torch.mean(recon_loss) + norm_loss * args.weight_decay_norm + l2_loss * args.l2_weight
-            loss = torch.mean(recon_loss + l2_loss * args.l2_weight) #embedding_loss * args.embedding_weight + l2_loss * args.l2_weight + args.weight_decay_norm * norm_loss
+            loss = torch.mean(recon_loss + l2_loss * args.l2_weight + embedding_loss * args.embedding_weight) #embedding_loss * args.embedding_weight + l2_loss * args.l2_weight + args.weight_decay_norm * norm_loss
             # norm_loss = model.spectral_norm_parallel()
             # bn_loss = model.batchnorm_loss()
             # get spectral regularization coefficient (lambda)
@@ -318,8 +318,8 @@ def cleanup():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('encoder decoder examiner')
     # RAE arguments
-    parser.add_argument('--embedding_weight', type=float, default=1e-2)
-    parser.add_argument('--l2_weight', type=float, default=1000)
+    parser.add_argument('--embedding_weight', type=float, default=1e-3)
+    parser.add_argument('--l2_weight', type=float, default=10)
 
     # experimental results
     parser.add_argument('--root', type=str, default='/tmp/nasvae/expr',
