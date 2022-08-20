@@ -343,7 +343,7 @@ class AutoEncoder(nn.Module):
             C_out = 3
 
         return nn.Sequential(nn.ELU(),
-                             Conv2D(C_in, C_out, 3, padding=1, bias=True),
+                             nn.Conv2d(C_in, C_out, 3, padding=1, bias=True),
                              nn.Sigmoid())
 
     def forward(self, x):       
@@ -404,8 +404,8 @@ class AutoEncoder(nn.Module):
         s = s.expand(batch_size, -1, -1, -1)
     
         # Initial embedding loss
-        embedding_loss = torch.zeros((1,), requires_grad=True).cuda()
-        embedding_loss += torch.mean(torch.square(z.view(z.size(0), -1)))
+        embedding_loss = torch.zeros((batch_size,), requires_grad=True).cuda()
+        embedding_loss += torch.mean(torch.square(z.view(z.size(0), -1)), axis=-1)
 
         # L2 Loss
         l2_loss = torch.zeros((batch_size,), requires_grad=True).cuda()
@@ -422,7 +422,7 @@ class AutoEncoder(nn.Module):
                     z = self.enc_sampler[idx_dec](ftr)
 
                     # Compute Embedding Loss
-                    # embedding_loss += torch.mean(torch.square(z.view(z.size(0), -1)))
+                    embedding_loss += torch.mean(torch.square(z.view(z.size(0), -1)), axis=-1)
 
                     # Compute L2 Loss
                     l2_loss += torch.mean(torch.square(z - z_), axis = [1, 2, 3])
