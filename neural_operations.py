@@ -160,7 +160,7 @@ class ELUConv(nn.Module):
         super(ELUConv, self).__init__()
         self.upsample = stride == -1
         stride = abs(stride)
-        self.conv_0 = Conv2D(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=True, dilation=dilation,
+        self.conv_0 = nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=True, dilation=dilation,
                              data_init=True)
 
     def forward(self, x):
@@ -177,7 +177,7 @@ class BNELUConv(nn.Module):
         self.upsample = stride == -1
         stride = abs(stride)
         self.bn = get_batchnorm(C_in, eps=BN_EPS, momentum=0.05)
-        self.conv_0 = Conv2D(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=True, dilation=dilation)
+        self.conv_0 = nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=True, dilation=dilation)
 
     def forward(self, x):
         x = self.bn(x)
@@ -196,7 +196,7 @@ class BNSwishConv(nn.Module):
         self.upsample = stride == -1
         stride = abs(stride)
         self.bn_act = SyncBatchNormSwish(C_in, eps=BN_EPS, momentum=0.05)
-        self.conv_0 = Conv2D(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=True, dilation=dilation)
+        self.conv_0 = nn.Conv2d(C_in, C_out, kernel_size, stride=stride, padding=padding, bias=True, dilation=dilation)
 
     def forward(self, x):
         """
@@ -215,10 +215,10 @@ class FactorizedReduce(nn.Module):
     def __init__(self, C_in, C_out):
         super(FactorizedReduce, self).__init__()
         assert C_out % 2 == 0
-        self.conv_1 = Conv2D(C_in, C_out // 4, 1, stride=2, padding=0, bias=True)
-        self.conv_2 = Conv2D(C_in, C_out // 4, 1, stride=2, padding=0, bias=True)
-        self.conv_3 = Conv2D(C_in, C_out // 4, 1, stride=2, padding=0, bias=True)
-        self.conv_4 = Conv2D(C_in, C_out - 3 * (C_out // 4), 1, stride=2, padding=0, bias=True)
+        self.conv_1 = nn.Conv2d(C_in, C_out // 4, 1, stride=2, padding=0, bias=True)
+        self.conv_2 = nn.Conv2d(C_in, C_out // 4, 1, stride=2, padding=0, bias=True)
+        self.conv_3 = nn.Conv2d(C_in, C_out // 4, 1, stride=2, padding=0, bias=True)
+        self.conv_4 = nn.Conv2d(C_in, C_out - 3 * (C_out // 4), 1, stride=2, padding=0, bias=True)
 
     def forward(self, x):
         out = act(x)
@@ -244,7 +244,7 @@ class EncCombinerCell(nn.Module):
         super(EncCombinerCell, self).__init__()
         self.cell_type = cell_type
         # Cin = Cin1 + Cin2
-        self.conv = Conv2D(Cin2, Cout, kernel_size=1, stride=1, padding=0, bias=True)
+        self.conv = nn.Conv2d(Cin2, Cout, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x1, x2):
         x2 = self.conv(x2)
@@ -257,7 +257,7 @@ class DecCombinerCell(nn.Module):
     def __init__(self, Cin1, Cin2, Cout, cell_type):
         super(DecCombinerCell, self).__init__()
         self.cell_type = cell_type
-        self.conv = Conv2D(Cin1 + Cin2, Cout, kernel_size=1, stride=1, padding=0, bias=True)
+        self.conv = nn.Conv2d(Cin1 + Cin2, Cout, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x1, x2):
         out = torch.cat([x1, x2], dim=1)
@@ -271,7 +271,7 @@ class ConvBNSwish(nn.Module):
         super(ConvBNSwish, self).__init__()
 
         self.conv = nn.Sequential(
-            Conv2D(Cin, Cout, k, stride, padding, groups=groups, bias=False, dilation=dilation, weight_norm=False),
+            nn.Conv2d(Cin, Cout, k, stride, padding, groups=groups, bias=False, dilation=dilation, weight_norm=False),
             SyncBatchNormSwish(Cout, eps=BN_EPS, momentum=0.05)  # drop in replacement for BN + Swish
         )
 
@@ -310,7 +310,7 @@ class InvertedResidual(nn.Module):
         layers = [get_batchnorm(Cin, eps=BN_EPS, momentum=0.05),
                   ConvBNSwish(Cin, hidden_dim, k=1),
                   ConvBNSwish(hidden_dim, hidden_dim, stride=self.stride, groups=groups, k=k, dilation=dil),
-                  Conv2D(hidden_dim, Cout, 1, 1, 0, bias=False, weight_norm=False),
+                  nn.Conv2d(hidden_dim, Cout, 1, 1, 0, bias=False, weight_norm=False),
                   get_batchnorm(Cout, momentum=0.05)]
 
         layers0.extend(layers)
