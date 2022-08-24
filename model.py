@@ -179,20 +179,20 @@ class AutoEncoder(nn.Module):
         
 
         # collect all norm params in Conv2D and gamma param in batchnorm
-        self.all_log_norm = []
-        self.all_conv_layers = []
-        self.all_bn_layers = []
-        for n, layer in self.named_modules():
-            # if isinstance(layer, Conv2D) and '_ops' in n:   # only chose those in cell
-            if isinstance(layer, nn.Conv2d) or isinstance(layer, ARConv2d):
-                self.all_log_norm.append(layer.log_weight_norm)
-                self.all_conv_layers.append(layer)
-            if isinstance(layer, nn.BatchNorm2d) or isinstance(layer, nn.SyncBatchNorm) or \
-                    isinstance(layer, SyncBatchNormSwish):
-                self.all_bn_layers.append(layer)
+        # self.all_log_norm = []
+        # self.all_conv_layers = []
+        # self.all_bn_layers = []
+        # for n, layer in self.named_modules():
+        #     # if isinstance(layer, Conv2D) and '_ops' in n:   # only chose those in cell
+        #     if isinstance(layer, nn.Conv2d) or isinstance(layer, ARConv2d):
+        #         self.all_log_norm.append(layer.log_weight_norm)
+        #         self.all_conv_layers.append(layer)
+        #     if isinstance(layer, nn.BatchNorm2d) or isinstance(layer, nn.SyncBatchNorm) or \
+        #             isinstance(layer, SyncBatchNormSwish):
+        #         self.all_bn_layers.append(layer)
 
-        print('len log norm:', len(self.all_log_norm))
-        print('len bn:', len(self.all_bn_layers))
+        # print('len log norm:', len(self.all_log_norm))
+        # print('len bn:', len(self.all_bn_layers))
         # left/right singular vectors used for SR
         self.sr_u = {}
         self.sr_v = {}
