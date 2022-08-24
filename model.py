@@ -12,7 +12,7 @@ import torch
 from torch._C import device
 import torch.nn as nn
 import torch.nn.functional as F
-from neural_operations import OPS, EncCombinerCell, DecCombinerCell, Conv2D, get_skip_connection, SE
+from neural_operations import OPS, EncCombinerCell, DecCombinerCell, get_skip_connection, SE
 from neural_ar_operations import ARConv2d, ARInvertedResidual, MixLogCDFParam, mix_log_cdf_flow
 from neural_ar_operations import ELUConv as ARELUConv
 from torch.distributions.bernoulli import Bernoulli
@@ -167,7 +167,7 @@ class AutoEncoder(nn.Module):
 
         if self.vanilla_vae:
             self.dec_tower = []
-            self.stem_decoder = Conv2D(self.num_latent_per_group, mult * self.num_channels_enc, (1, 1), bias=True)
+            self.stem_decoder = nn.Conv2d(self.num_latent_per_group, mult * self.num_channels_enc, (1, 1), bias=True)
         else:
             self.dec_tower, mult = self.init_decoder_tower(mult)
 
@@ -184,7 +184,7 @@ class AutoEncoder(nn.Module):
         self.all_bn_layers = []
         for n, layer in self.named_modules():
             # if isinstance(layer, Conv2D) and '_ops' in n:   # only chose those in cell
-            if isinstance(layer, Conv2D) or isinstance(layer, ARConv2d):
+            if isinstance(layer, nn.Conv2d) or isinstance(layer, ARConv2d):
                 self.all_log_norm.append(layer.log_weight_norm)
                 self.all_conv_layers.append(layer)
             if isinstance(layer, nn.BatchNorm2d) or isinstance(layer, nn.SyncBatchNorm) or \
@@ -201,7 +201,7 @@ class AutoEncoder(nn.Module):
     def init_stem(self):
         Cout = self.num_channels_enc
         Cin = 1 if self.dataset in {'mnist', 'omniglot'} else 3
-        stem = Conv2D(Cin, Cout, 3, padding=1, bias=True)
+        stem = nn.Conv2d(Cin, Cout, 3, padding=1, bias=True)
         return stem
 
     def init_pre_process(self, mult):
@@ -260,7 +260,7 @@ class AutoEncoder(nn.Module):
         num_c = int(self.num_channels_enc * mult)  # 32 x 4 = 128
         cell = nn.Sequential(
             nn.ELU(),
-            Conv2D(num_c, num_c, kernel_size=1, bias=True),
+            nn.Conv2d(num_c, num_c, kernel_size=1, bias=True),
             nn.ELU())
         return cell
 
@@ -271,7 +271,7 @@ class AutoEncoder(nn.Module):
             for g in range(self.groups_per_scale[self.num_latent_scales - s - 1]):
                 # build mu, sigma generator for encoder
                 num_c = int(self.num_channels_enc * mult)
-                cell = Conv2D(num_c, 1 * self.num_latent_per_group, kernel_size=3, padding=1, bias=True)
+                cell = nn.Conv2d(num_c, 1 * self.num_latent_per_group, kernel_size=3, padding=1, bias=True)
                 enc_sampler.append(cell)
                 # build NF
                 for n in range(self.num_flows):
@@ -283,7 +283,7 @@ class AutoEncoder(nn.Module):
                     num_c = int(self.num_channels_dec * mult)
                     cell = nn.Sequential(
                         nn.ELU(),
-                        Conv2D(num_c, 1 * self.num_latent_per_group, kernel_size=1, padding=0, bias=True)) # TODO: Change kernel size
+                        nn.Conv2d(num_c, 1 * self.num_latent_per_group, kernel_size=1, padding=0, bias=True)) # TODO: Change kernel size
                     dec_sampler.append(cell)
 
             mult = mult / CHANNEL_MULT
