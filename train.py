@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import os
+from sklearn import mixture
 
 import torch.distributed as dist
 from torch.multiprocessing import Process
@@ -22,6 +23,8 @@ import datasets
 
 from fid.fid_score import compute_statistics_of_generator, load_statistics, calculate_frechet_distance
 from fid.inception import InceptionV3
+import warnings
+warnings.filterwarnings('ignore')
 
 
 def main(args):
@@ -148,8 +151,6 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
             #                           args.kl_const_portion * args.num_total_iter, args.kl_const_coeff)
 
             recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
-            if step % 30 == 0:
-                loss_queue.append(recon_loss.item())
             
             # print('recon: {:.4f} - emb: {:.4f} - l2: {:.4f}'.format(recon_loss.mean().item(), embedding_loss.item(), l2_loss.item()))
             # balanced_kl, kl_coeffs, kl_vals = utils.kl_balancer(kl_all, kl_coeff, kl_balance=True, alpha_i=alpha_i)
@@ -176,43 +177,14 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
         grad_scalar.update()
         nelbo.update(loss.data, 1)
 
+        if (global_step + 1) % 3000 == 0:  
+            logging.info('Testing...')
+            
+            args.fid_dir = 'fid_results'
+            args.max_samples = 10000
+            fid = test_vae_fid(model, train_queue, args, 10000)
+            logging.info('FID: %f', fid) 
         
-        # if (global_step + 1) % 100 == 0:
-        #     if (global_step + 1) % 1000 == 0:  # reduced frequency
-        #         n = int(np.floor(np.sqrt(x.size(0))))
-        #         x_img = x[:n*n]
-        #         output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.sample()
-        #         output_img = output_img[:n*n]
-        #         x_tiled = utils.tile_image(x_img, n)
-        #         output_tiled = utils.tile_image(output_img, n)
-        #         in_out_tiled = torch.cat((x_tiled, output_tiled), dim=2)
-        #         writer.add_image('reconstruction', in_out_tiled, global_step)
-
-        #     # norm
-        #     # writer.add_scalar('train/norm_loss', norm_loss, global_step)
-        #     # writer.add_scalar('train/bn_loss', bn_loss, global_step)
-        #     #writer.add_scalar('train/norm_coeff', wdn_coeff, global_step)
-
-        #     utils.average_tensor(nelbo.avg, args.distributed)
-        #     logging.info('train %d %f', global_step, nelbo.avg)
-        #     writer.add_scalar('train/nelbo_avg', nelbo.avg, global_step)
-        #     writer.add_scalar('train/lr', cnn_optimizer.state_dict()[
-        #                       'param_groups'][0]['lr'], global_step)
-        #     writer.add_scalar('train/nelbo_iter', loss, global_step)
-        #     # writer.add_scalar('train/kl_iter', torch.mean(sum(kl_all)), global_step)
-        #     writer.add_scalar('train/recon_iter', torch.mean(utils.reconstruction_loss(output, x, crop=model.crop_output)), global_step)
-        #     # writer.add_scalar('kl_coeff/coeff', kl_coeff, global_step)
-        #     # total_active = 0
-        #     # for i, kl_diag_i in enumerate(kl_diag):
-        #     #     utils.average_tensor(kl_diag_i, args.distributed)
-        #     #     num_active = torch.sum(kl_diag_i > 0.1).detach()
-        #     #     total_active += num_active
-
-        #     #     # kl_ceoff
-        #     #     writer.add_scalar('kl/active_%d' % i, num_active, global_step)
-        #     #     writer.add_scalar('kl_coeff/layer_%d' % i, kl_coeffs[i], global_step)
-        #     #     writer.add_scalar('kl_vals/layer_%d' % i, kl_vals[i], global_step)
-        #     # writer.add_scalar('kl/total_active', total_active, global_step)
 
         global_step += 1
 
@@ -222,62 +194,31 @@ def train(train_queue, model, cnn_optimizer, grad_scalar, global_step, warmup_it
     return nelbo.avg, global_step, output, loss_queue, z0, x
 
 
-def test(valid_queue, model, num_samples, args, logging):
-    if args.distributed:
-        dist.barrier()
-    nelbo_avg = utils.AvgrageMeter()
-    neg_log_p_avg = utils.AvgrageMeter()
-    model.eval()
-    for step, x in enumerate(valid_queue):
-        x = x[0] if len(x) > 1 else x
-        x = x.cuda()
-
-        # change bit length
-        x = utils.pre_process(x, args.num_x_bits)
-
-        with torch.no_grad():
-            nelbo, log_iw = [], []
-            for k in range(num_samples):
-                logits, log_q, log_p, kl_all, _ = model(x)
-                output = model.decoder_output(logits)
-                recon_loss = utils.reconstruction_loss(output, x, crop=model.crop_output)
-                balanced_kl, _, _ = utils.kl_balancer(kl_all, kl_balance=False)
-                nelbo_batch = recon_loss + balanced_kl
-                nelbo.append(nelbo_batch)
-                log_iw.append(utils.log_iw(output, x, log_q, log_p, crop=model.crop_output))
-
-            nelbo = torch.mean(torch.stack(nelbo, dim=1))
-            log_p = torch.mean(torch.logsumexp(torch.stack(log_iw, dim=1), dim=1) - np.log(num_samples))
-
-        nelbo_avg.update(nelbo.data, x.size(0))
-        neg_log_p_avg.update(- log_p.data, x.size(0))
-
-    utils.average_tensor(nelbo_avg.avg, args.distributed)
-    utils.average_tensor(neg_log_p_avg.avg, args.distributed)
-    if args.distributed:
-        # block to sync
-        dist.barrier()
-    logging.info('val, step: %d, NELBO: %f, neg Log p %f', step, nelbo_avg.avg, neg_log_p_avg.avg)
-    return neg_log_p_avg.avg, nelbo_avg.avg
-
-
-def create_generator_vae(model, batch_size, num_total_samples):
+def create_generator_vae(model, batch_size, gmm, num_total_samples):
     num_iters = int(np.ceil(num_total_samples / batch_size))
     for i in range(num_iters):
         with torch.no_grad():
-            logits = model.sample(batch_size, 1.0)
-            output = model.decoder_output(logits)
-            output_img = output.mean if isinstance(output, torch.distributions.bernoulli.Bernoulli) else output.mean()
+          output_img, _ = sample(model, gmm, args.batch_size, None)
         yield output_img.float()
 
 
-def test_vae_fid(model, args, total_fid_samples):
+def test_vae_fid(model, train_queue, args, total_fid_samples):
+    gmm = mixture.GaussianMixture(
+                n_components=10,
+                covariance_type="full",
+                max_iter=2000,
+                verbose=2,
+                tol=1e-3,
+        )   
+
+    gmm, _ = fit(model, train_queue, gmm) 
+    
     dims = 2048
     device = 'cuda'
     num_gpus = args.num_process_per_node * args.num_proc_node
     num_sample_per_gpu = int(np.ceil(total_fid_samples / num_gpus))
 
-    g = create_generator_vae(model, args.batch_size, num_sample_per_gpu)
+    g = create_generator_vae(model, args.batch_size, gmm, num_sample_per_gpu)
     block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[dims]
     model = InceptionV3([block_idx], model_dir=args.fid_dir).to(device)
     m, s = compute_statistics_of_generator(g, model, args.batch_size, dims, device, max_samples=num_sample_per_gpu)
@@ -301,6 +242,7 @@ def test_vae_fid(model, args, total_fid_samples):
     return fid
 
 
+
 def init_processes(rank, size, fn, args):
     """ Initialize the distributed environment. """
     os.environ['MASTER_ADDR'] = args.master_address
@@ -313,6 +255,71 @@ def init_processes(rank, size, fn, args):
 
 def cleanup():
     dist.destroy_process_group()
+
+
+def fit(model, queue, gmm):
+  z = []
+  with torch.no_grad():
+    for num, x in enumerate(queue):
+      x = x[0].float().cuda()
+
+      # Normalize x between -1, 1       
+      s = model.stem(2*x-1)     
+      
+      # perform pre-processing         
+      for cell in model.pre_process:   
+          s = cell(s)                  
+                                      
+      # run the main encoder tower
+      for cell in model.enc_tower:    
+        if cell.cell_type != 'combiner_enc':
+            s = cell(s)
+
+      idx_dec = 0
+      ftr = model.enc0(s)             
+      z_ = model.enc_sampler[idx_dec](ftr) 
+      z.append(z_)
+
+  
+  z = torch.cat(z)
+#   print('z:', z.shape)
+  z = z.view(z.size(0), -1)
+  gmm.fit(z.cpu().detach())
+  return gmm, z
+
+def sample(model, gmm, num_samples, z0=None):
+  with torch.no_grad():
+    scale_ind = 0
+    
+    z = z0  if z0 is not None else torch.tensor(gmm.sample(num_samples)[0]).view(num_samples, 1, 4, 4).cuda().float()
+    z0_ret = z
+
+    idx_dec = 0
+    s = model.prior_ftr0.unsqueeze(0)
+    batch_size = z.size(0)
+    s = s.expand(batch_size, -1, -1, -1)
+    for cell in model.dec_tower:
+        if cell.cell_type == 'combiner_dec':
+            if idx_dec > 0:
+                # form prior
+                z = model.dec_sampler[idx_dec - 1](s)
+                # mu, log_sigma = torch.chunk(param, 2, dim=1)
+                # dist = Normal(mu, log_sigma, t)
+                # z, _ = dist.sample()
+
+            # 'combiner_dec'
+            s = cell(s, z)
+            idx_dec += 1
+        else:
+            s = cell(s)
+            if cell.cell_type == 'up_dec':
+                scale_ind += 1
+
+    for cell in model.post_process:
+        s = cell(s)
+
+    logits = model.image_conditional(s)
+  return logits, z0_ret
 
 
 if __name__ == '__main__':
